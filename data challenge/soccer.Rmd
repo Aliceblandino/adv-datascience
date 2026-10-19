@@ -21,7 +21,7 @@ This challenge explores all matches of Italian soccer Serie A league from 1993 t
     4.  Verifico se ci sono valori non validi
 2.  Ask AI to write code to import data by scraping the website. Select only columns Date, HomeTeam, AwayTeam, FTHG (home team goals), FTAG (away team goals) and filter rows with a valid (not NA) Date.
 
-```{r import-serie-a, message=FALSE, warning=FALSE, cache=TRUE}
+```{r import-serie-a, message=FALSE, warning=FALSE, cache=TRUE, eval=TRUE}
 library(rvest); library(readr); library(dplyr); library(purrr); library(lubridate)
 
 options(timeout = 120)
@@ -86,11 +86,11 @@ glimpse(serieA)
 
 3.  Using dplyr and tidyr packages (no for loops!), compute statistics for every team (matches, wins, loses, draws, points, points per match). Hint: mutate a column with the outcome of the match (for instance, H = home teams wins, A = away team wins, P = draw). Then group by team and outcome (home and away) and hence spread the outcome. Do this step without the use of AI.
 
-```{r setup, warning=FALSE, include=TRUE}
+```{r, warning=FALSE, include=TRUE, eval=TRUE}
 library(tidyr)
 library(dplyr)
 
-risultati <- serie_a %>%
+risultati <- serieA %>%
   mutate(Outcome=case_when(FTHG>FTAG~"H",FTHG < FTAG ~ "A",TRUE ~ "P"))
 
 casa <- risultati %>%
