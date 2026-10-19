@@ -1,0 +1,124 @@
+---
+title: "Which is the best team ever in Italian soccer?"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+# cache results
+knitr::opts_chunk$set(cache=FALSE, echo = TRUE, eval = FALSE, message=FALSE, warning = FALSE, fig.align='center')
+```
+
+This challenge explores all matches of Italian soccer Serie A league from 1993 to current year. The dataset is contained in the website [football-data.co.uk](http://www.football-data.co.uk/italym.php).
+
+### Challenges
+
+1.  Think about how to scrape the data from the website, but write no code at this stage.
+    1.  Apro il sito e scarico i file delle varie stagioni
+    2.  Importo i file in R
+    3.  Analizzo i file guardando le colonne che possono essermi utili
+    4.  Verifico se ci sono valori non validi
+2.  Ask AI to write code to import data by scraping the website. Select only columns Date, HomeTeam, AwayTeam, FTHG (home team goals), FTAG (away team goals) and filter rows with a valid (not NA) Date.
+
+```{r import-serie-a, message=FALSE, warning=FALSE, cache=TRUE}
+library(rvest); library(readr); library(dplyr); library(purrr); library(lubridate)
+
+options(timeout = 120)
+pagina_url <- "https://www.football-data.co.uk/italym.php"
+
+# 1. Scraping della pagina (con riprova se il server dà 504)
+pagina <- NULL
+for (i in 1:4) {
+  pagina <- tryCatch(read_html(pagina_url), error = function(e) NULL)
+  if (!is.null(pagina)) break
+  message("Pagina non raggiunta, riprovo (", i, "/4)")
+  Sys.sleep(3 * i)
+}
+stopifnot(!is.null(pagina))
+
+# 2. Estraggo i link ai CSV della Serie A (I1.csv)
+link <- pagina %>% html_elements("a") %>% html_attr("href")
+link <- unique(link[grepl("I1\\.csv$", link)])
+urls <- url_absolute(link, pagina_url)
+message("Trovate ", length(urls), " stagioni di Serie A")
+
+# 3. Download in locale, un file alla volta, con riprova
+dir.create("dati_serieA", showWarnings = FALSE)
+stagioni <- sub(".*/(\\d{4})/I1\\.csv$", "\\1", urls)
+file_loc <- file.path("dati_serieA", paste0("I1_", stagioni, ".csv"))
+
+scarica <- function(url, dest, tentativi = 4) {
+  if (file.exists(dest) && file.size(dest) > 1000) return(TRUE)
+  for (i in seq_len(tentativi)) {
+    ok <- tryCatch({
+      download.file(url, dest, mode = "wb", quiet = TRUE)
+      file.size(dest) > 1000
+    }, error = function(e) FALSE, warning = function(w) FALSE)
+    if (ok) { message("OK  ", basename(dest)); return(TRUE) }
+    message("Riprovo ", basename(dest), " (", i, "/", tentativi, ")")
+    Sys.sleep(3 * i)
+  }
+  if (file.exists(dest)) file.remove(dest)
+  message("FALLITO ", basename(dest)); FALSE
+}
+
+for (k in seq_along(urls)) { scarica(urls[k], file_loc[k]); Sys.sleep(1) }
+
+# 4. Import: solo le colonne richieste, solo righe con Date valida
+leggi_stagione <- function(f) {
+  tryCatch(
+    read_csv(f, col_select = c(Date, HomeTeam, AwayTeam, FTHG, FTAG),
+             col_types = cols(.default = col_character()),
+             show_col_types = FALSE, progress = FALSE),
+    error = function(e) { message("Saltato: ", f); NULL }
+  )
+}
+
+serieA <- map_dfr(file_loc[file.exists(file_loc)], leggi_stagione) %>%
+  mutate(Date = dmy(Date),
+         FTHG = as.integer(FTHG),
+         FTAG = as.integer(FTAG)) %>%
+  filter(!is.na(Date))
+
+glimpse(serieA)
+```
+
+3.  Using dplyr and tidyr packages (no for loops!), compute statistics for every team (matches, wins, loses, draws, points, points per match). Hint: mutate a column with the outcome of the match (for instance, H = home teams wins, A = away team wins, P = draw). Then group by team and outcome (home and away) and hence spread the outcome. Do this step without the use of AI.
+
+```{r setup, warning=FALSE, include=TRUE}
+library(tidyr)
+library(dplyr)
+
+risultati <- serie_a %>%
+  mutate(Outcome=case_when(FTHG>FTAG~"H",FTHG < FTAG ~ "A",TRUE ~ "P"))
+
+casa <- risultati %>%
+  count(Team = HomeTeam, Outcome) %>%
+  pivot_wider(names_from=Outcome, values_from=n, values_fill=0) %>%
+  rename(home_W = H, home_D = P, home_L = A)
+
+trasferta <- risultati %>%
+  count(Team = AwayTeam, Outcome) %>%
+  pivot_wider(names_from = Outcome, values_from = n, values_fill = 0) %>%
+  rename(away_W = A, away_D = P, away_L = H)
+
+statistiche <- full_join(casa, trasferta, by = "Team") %>%
+  mutate(across(where(is.numeric), ~ replace_na(.x, 0)),
+         Matches = home_W + home_D + home_L + away_W + away_D + away_L,
+         Wins    = home_W + away_W,
+         Draws   = home_D + away_D,
+         Losses  = home_L + away_L,
+         Points  = 3 * Wins + Draws,
+         PPM     = Points / Matches) %>%
+  select(Team, Matches, Wins, Draws, Losses, Points, PPM) %>%
+  arrange(desc(PPM))
+
+statistiche
+
+```
+
+3.  Come up with at least 3 data questions on the data at hand. Just write the questions, do not find the answers.
+    1.  Il rapporto tra numero di tiri in porta e il numero di gol fatti influisce con il fatto che la partita sia giocata in casa?
+    2.  Il numero di cartellini rossi è più alto se presi giocando in casa o no?
+    3.  Quale arbitro ha dato più cartellini?
