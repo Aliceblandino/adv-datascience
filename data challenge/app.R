@@ -1,0 +1,73 @@
+library(gapminder)
+library(dplyr)
+library(ggplot2)
+library(shiny)
+
+
+ui = fluidPage(
+  
+  titlePanel("Gapminder Data"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      # Year input
+      sliderInput("year",
+                  "Year",
+                  min = 1952,
+                  max = 2007,
+                  step = 5,
+                  value = 1952),
+      
+      # Continent input
+      selectInput("continent", "Continent", 
+                  choices = list("Africa", "Americas", "Asia", "Europe", "Oceania", "All"), 
+                  selected = "All"),
+      # x input
+      radioButtons("xaxis", "X",
+                   choices = list("Life expectancy" = "lifeExp", 
+                                  "Population" = "pop", 
+                                  "GDP per capita" = "gdpPercap"), 
+                   selected = "gdpPercap"),
+      
+      
+      # y input
+      radioButtons("yaxis", "Y",
+                   choices = list("Life expectancy" = "lifeExp", 
+                                  "Population" = "pop", 
+                                  "GDP per capita" = "gdpPercap"), 
+                   selected = "lifeExp")
+      
+    
+    ),
+    
+    
+    # scatter plot output
+    mainPanel(
+      plotOutput("scatterPlot")
+    )
+  )
+)
+
+server <- function(input, output) {
+  
+  output$scatterPlot <- renderPlot({
+    # generate dataset
+    if (input$continent == "All") {
+      dataset = filter(gapminder, year == input$year)
+    } else {
+      dataset = filter(gapminder, year == input$year, continent == input$continent)
+    }
+    
+    # draw the scatter plot
+    ggplot(dataset, aes_string(input$xaxis, input$yaxis, size = "pop", colour = "country")) +
+      geom_point(alpha = 0.5, show.legend = FALSE) +
+      scale_colour_manual(values = country_colors) +
+      scale_size(range = c(2, 20)) +
+      scale_x_log10() +
+      scale_y_log10() +
+      theme_minimal()
+    })
+}
+
+
+shinyApp(ui = ui, server = server)
