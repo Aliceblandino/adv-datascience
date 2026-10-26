@@ -1,0 +1,153 @@
+---
+title: "The Elo method in chess"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache=FALSE, message=FALSE,  warning = FALSE)
+```
+
+**Elo method** was coined by the physics professor and excellent chess player Arpad Elo. In 1970, FIDE, the World Chess Federation, agreed to adopt the Elo Rating System.
+
+The method works as follows. Suppose that players $i$ and $j$ match. Let $s_{i,j}$ be the **actual score** of $i$ in the match against $j$. We have that:
+
+-   $s_{i,j} = 1$ if $i$ wins;
+-   $s_{i,j} = 0$ if $i$ loses; and
+-   $s_{i,j} = 0.5$ if there is a draw.
+
+Notice that the actual score $s_{j,i}$ of $j$ in the match against $i$ is $1 - s_{i,j}$. Let $\mu_{i,j}$ be the **expected score** of $i$ in the match against $j$. We have that:
+
+$$
+\begin{array}{lll}
+\mu_{i,j} & = & \frac{1}{1 + 10^{-(r_i - r_j) / \zeta}} = 
+\frac{10^{r_i / \zeta}}{10^{r_i / \zeta} + 10^{r_j / \zeta}} \\\\
+\end{array}
+$$
+
+with $r_i$ and $r_j$ the ratings of $i$ and $j$ before the match and $\zeta$ is a constant. Notice that the expected score $\mu_{j,i}$ of $j$ in the match against $i$ is $1 - \mu_{i,j}$.
+
+```{r logistic, echo = FALSE, eval = TRUE}
+## Logistic function
+logistic = function(x, z=400) {
+  return(1 / (1 + 10^(-x / z)))
+}
+limit = 1000
+plot(logistic, xlim=c(-limit, limit), lwd=3, xlab="rating difference", ylab = "logistic")
+abline(h=0.5, lty=2)
+```
+
+We assume that initially all player ratings are equal to 0. When players $i$ and $j$ match, the new ratings $r_i$ of $i$ and $r_j$ of $j$ are modified using the following update rule:
+
+$$
+\begin{array}{lll}
+r_{i} & \leftarrow & r_i + \kappa (s_{i,j} - \mu_{i,j}) 
+\\
+r_j & \leftarrow & r_j + \kappa (s_{j,i} - \mu_{j,i})
+\end{array}
+$$
+
+where $\kappa$ is a constant.
+
+The Elo thesis is:
+
+> *If a player performs as expected, it gains nothing. If it performs better than expected, it is rewarded, while if it performs poorer than expected, it is penalized.*
+
+This challenge is ispired by [Chess ratings - Elo versus the Rest of the World](https://www.kaggle.com/c/chess#description) Kaggle competition.
+
+## Downloads
+
+-   A [CSV](data.csv) with outcomes of 65053 distinct chess games (White, Black and Score). The possible values for Score represent the three possible outcomes of a chess game (1=White wins, 0.5=draw, 0=Black wins). Read [details](https://www.kaggle.com/c/chess/data).
+
+## Challenges
+
+1.  Has the White an advantage over the Black, that is, is there a first-mover advantage?
+```{r}
+library(dplyr)
+library(ggplot2)
+games = read.csv("data.csv")
+if ("Month" %in% names(games)) games = arrange(games, Month)
+str(games)
+table(games$Score) / nrow(games)
+mean(games$Score)                    
+# 0.5 = nessun vantaggio
+# test sulle sole partite con un vincitore
+decisive = filter(games, Score != 0.5)
+binom.test(sum(decisive$Score == 1), nrow(decisive), p = 0.5)
+```
+Il punteggio medio del bianco è superiore a 0.5. Considerando solo le partite decisive, il bianco vince significativamente più spesso del Nero (p-value del test binomiale è circa 0). Esiste quindi un vantaggio della prima mossa.
+
+2.  Write a function that computes the player point rating (1 point for wins, 0.5 points for draws, 0 points for defeats). How are point ratings distributed? Why?
+```{r}
+point_rating = function(games) {
+  bind_rows(
+    tibble(player = games$White, s = games$Score),
+    tibble(player = games$Black, s = 1 - games$Score)
+  ) %>%
+    group_by(player) %>%
+    summarise(points = sum(s), games = n())
+}
+pts = point_rating(games)
+summary(pts$points)
+ggplot(pts, aes(points)) + geom_histogram(bins = 50)
+```
+La distribuzione è asimmetrica a destra e questo significa che la maggior parte dei giocatori ha pochi punti e pochi giocatori hanno tanti punti. I punti sono cumulativi, quindi riflettono soprattutto quante partite ha giocato un giocatore. Anche il numero di partite per giocatore è asimmetrico: ci sono molti giocatori occasionali e pochi giocatori molto attivi.
+
+3.  An interesting property of Elo's ratings is that the sum of all player ratings is always 0. Formally show this property. (Hint: use the fact that $s_{i,j} + s_{j,i}=1$ and $\mu_{i,j} + \mu_{j,i} =1$)
+All'inizio tutti i rating valgono 0, quindi $\sum_k r_k = 0$. Una partita tra
+$i$ e $j$ modifica solo $r_i$ e $r_j$, con una variazione totale pari a:
+
+$$
+\kappa (s_{i,j} - \mu_{i,j}) + \kappa (s_{j,i} - \mu_{j,i})
+= \kappa \big[(s_{i,j} + s_{j,i}) - (\mu_{i,j} + \mu_{j,i})\big]
+= \kappa (1 - 1) = 0
+$$
+Ogni aggiornamento lascia quindi invariata
+
+4.  Write a function that computes the player Elo rating (set $\zeta = 400$ and $\kappa = 25$) (Hint: take advantage of the 0-sum property to optimize the code). Obserse its distribution: why is different from the point distribution?  Verify the 0-sum property for Elo's ratings
+```{r}
+elo_rating = function(games, z = 400, k = 25) {
+  players = sort(unique(c(games$White, games$Black)))
+  w = match(games$White, players)
+  b = match(games$Black, players)
+  r = rep(0, length(players))
+  for (g in seq_len(nrow(games))) {
+    i = w[g]; j = b[g]
+    mu = 1 / (1 + 10^(-(r[i] - r[j]) / z))
+    delta = k * (games$Score[g] - mu)
+    r[i] = r[i] + delta
+    r[j] = r[j] - delta   #variazione di j è opposta a quella di i
+  }
+  tibble(player = players, elo = r)
+}
+elo = elo_rating(games)
+summary(elo$elo)
+ggplot(elo, aes(elo)) + geom_histogram(bins = 50)
+sum(elo$elo)        
+```
+La distribuzione Elo è approssimativamente a campana e centrata sullo 0. Elo un giocatore guadagna solo se fa meglio del previsto, quindi giocare molte partite non fa crescere direttamente il rating. La somma dei rating Elo è comunque 0.
+
+5.  Are point and Elo ratings correlated? Are top Elo players overlapping with top point players?
+```{r}
+ratings = inner_join(pts, elo, by = "player")
+cor(ratings$points, ratings$elo)
+cor(ratings$points, ratings$elo, method = "spearman")
+ggplot(ratings, aes(points, elo)) + geom_point(alpha = 0.3)
+
+n = 20
+top_points = slice_max(ratings, points, n = n)$player
+top_elo    = slice_max(ratings, elo, n = n)$player
+length(intersect(top_points, top_elo))
+```
+
+I due rating sono correlati positivamente, ma non in modo perfetto infatti le due top 20 si sovrappongono solo in parte. Possiamo notare che i migliori per punti sono spesso giocatori con moltissime partite invece i migliori per Elo sono quelli che battono avversari forti.
+
+6. Test if the number of played games has an effect on the Elo and point player ratings
+```{r}
+cor.test(ratings$games, ratings$points)
+cor.test(ratings$games, ratings$elo)
+ggplot(ratings, aes(games, points)) + geom_point(alpha = 0.3)
+ggplot(ratings, aes(games, elo)) + geom_point(alpha = 0.3)
+```
+Il numero di partite ha un effetto positivo sui punti, perché i punti sono cumulativi. Sull'Elo l'effetto è molto più debole, dato che il rating non cresce semplicemente giocando. Può comunque comparire una lieve associazione positiva per due motivi: i giocatori più forti tendono a giocare di più e chi gioca poche partite resta vicino al rating iniziale 0.
