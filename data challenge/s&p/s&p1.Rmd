@@ -4,7 +4,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(cache = TRUE, echo = TRUE, message = FALSE)
+knitr::opts_chunk$set(cache = TRUE, echo = TRUE, message = FALSE, warning = FALSE)
 ```
 
 In this data challege we study how concentrated the S&P 500 is among its constituent companies.
@@ -36,15 +36,16 @@ Our main questions are:
 3.  What does the Lorenz curve tell us about concentration?
 4.  What is the Gini coefficient of the S&P 500 weights?
 
-## Domanda 1
+## Domanda 1: How unequal are the company weights in the S&P 500?
 
-1.  How unequal are the company weights in the S&P 500?
+Quanto è diseguale la ponderazione delle società nell'S&P 500?
 
 ```{r}
 #install.packages(c("tidyverse", "tidyquant", "ineq"))
 library(tidyquant)
 sp500 <- tq_index("SP500")
-glimpse(sp500)
+#glimpse(sp500)
+head(sp500)
 
 ```
 
@@ -63,15 +64,15 @@ ggplot(sp500, aes(weight)) +
   labs(title = "Distribuzione dei pesi nell'S&P 500", x = "Peso", y = "Numero di società")
 ```
 
-## Domanda 2
+**Risposta:** I pesi delle società sono fortemente disuguali. Se tutte le 504 società pesassero lo stesso, ognuna avrebbe circa lo 0,2% dell’indice, che coincide con la media osservata. La mediana però è solo dello 0,068%. Quindi la metà delle società pesa meno di un terzo di quanto peserebbe in una situazione di perfetta uguaglianza. La media è circa tre volte la mediana, e questo indica una distribuzione molto asimmetrica, tirata verso l’alto da pochi valori molto grandi. Il 75% delle società ha un peso inferiore allo 0,14% (terzo quartile). La società più grande, Apple, arriva invece al 7,6%, cioè più di 100 volte il peso della società mediana. Il peso minimo è praticamente nullo (0,000003%). L’istogramma conferma questa situazione. Quasi tutte le società sono schiacciate vicino allo zero, mentre poche osservazioni isolate stanno molto a destra, tra il 2% e l’8%. È una distribuzione con una lunga coda a destra: l’indice è composto da molte società piccole e da un numero ristretto di giganti che ne determinano gran parte del valore.
 
-2.  How much of the index is represented by its largest companies?
+## Domanda 2: How much of the index is represented by its largest companies?
+
+Quale quota dell'indice è rappresentata dalle sue aziende più grandi?
 
 ```{r}
 sp500 <- sp500 %>% mutate(rank = row_number(), cum_weight = cumsum(weight))
-
 sp500 %>% slice_head(n = 10) %>% select(symbol, company, weight)
-
 sp500 %>% filter(rank %in% c(1, 5, 10, 20, 50, 100)) %>% select(rank, cum_weight)
 ```
 
@@ -83,9 +84,11 @@ sp500 %>% slice_head(n = 20) %>%
   labs(title = "Le 20 società più pesanti", x = NULL, y = "Peso")
 ```
 
-## Domanda 3
+**Rispoasta:**La sola Apple vale il 7,6% dell’indice. Le prime 5 società arrivano al 27% e le prime 10 al 37%: il 2% delle società pesa più di un terzo dell’indice. Con le prime 20 (circa il 4% delle società) si arriva quasi alla metà (48%). Le prime 100 coprono il 75%, quindi le altre 404 società insieme valgono solo un quarto dell’indice. Il grafico mostra che il peso cala in fretta già dentro la top 20. Apple, NVIDIA e Microsoft si staccano nettamente dalle altre, e quasi tutte le prime posizioni sono società tecnologiche. GOOGL e GOOG sono la stessa società (Alphabet, due classi di azioni). Sommate valgono circa il 4,5%, quindi nella realtà Alphabet è la quarta società dell’indice.
 
-3.  What does the Lorenz curve tell us about concentration?
+## Domanda 3: What does the Lorenz curve tell us about concentration?
+
+Cosa ci dice la curva di Lorenz sulla concentrazione?
 
 ```{r}
 lc <- Lc(sp500$weight)
@@ -103,9 +106,11 @@ tibble(p = lc$p, L = lc$L) %>%
   labs(x = "Quota cumulata di società", y = "Quota cumulata del peso")
 ```
 
-## Domanda 4
+**Risposta:** La curva di Lorenz confronta la quota cumulata di società, ordinate dalla più piccola alla più grande, con la quota cumulata del peso. La diagonale tratteggiata rappresenta l’uguaglianza perfetta, cioè tutte le società con lo stesso peso. Nel caso dell’S&P 500 la curva sta molto sotto la diagonale, quindi l’indice è fortemente concentrato. La curva resta bassa e piatta per gran parte del grafico. Il 50% delle società più piccole vale solo circa il 9% dell’indice, e l’80% delle società più piccole arriva a circa il 25%. Solo alla fine, nell’ultimo 5% circa, la curva sale quasi in verticale. Quel tratto finale corrisponde alle poche società giganti (Apple, NVIDIA, Microsoft, Amazon...) che da sole spiegano metà del peso dell’indice.
 
-4.  What is the Gini coefficient of the S&P 500 weights?
+## Domanda 4: What is the Gini coefficient of the S&P 500 weights?
+
+Qual è il coefficiente di Gini dei pesi nell'S&P 500?
 
 ```{r}
 Gini(sp500$weight)
