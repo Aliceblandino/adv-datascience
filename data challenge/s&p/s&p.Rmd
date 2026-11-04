@@ -1,0 +1,234 @@
+---
+title: "Concentration of S&P 500 index"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, echo = TRUE, message = FALSE)
+```
+
+In this data challege we study how concentrated the S&P 500 is among its constituent companies. 
+
+1. The S&P 500 (Standard & Poor's 500) is a stock market index that tracks the performance of 500 of the largest publicly traded companies in the United States.
+2. It covers roughly 80% of the total value of the U.S. stock market.
+3. It is a market-capitalization-weighted index. Larger companies have a much bigger impact on its value than smaller components
+
+
+We will use:
+
+```{r}
+library(tidyverse)
+library(tidyquant)
+library(ineq)
+```
+
+The three packages have different roles:
+
+```text
+tidyquant    retrieve the S&P 500 constituents and weights
+tidyverse    manipulate and visualize the data
+ineq         calculate the Lorenz curve and Gini coefficient
+```
+
+Our main questions are:
+
+1. How unequal are the company weights in the S&P 500?
+2. How much of the index is represented by its largest companies?
+3. What does the Lorenz curve tell us about concentration?
+4. What is the Gini coefficient of the S&P 500 weights?
+
+## Data
+
+## 1. Recupero dei dati
+
+Utilizziamo la funzione `tq_index()` del pacchetto `tidyquant` per recuperare le aziende che compongono l'indice S&P 500 e i relativi pesi.
+
+```{r}
+sp500 <- tq_index("SP500")
+
+head(sp500)
+```
+
+Visualizziamo la struttura del dataset e i nomi delle colonne:
+
+```{r}
+glimpse(sp500)
+names(sp500)
+```
+
+Controlliamo il numero di aziende presenti:
+
+```{r}
+nrow(sp500)
+```
+## 2. Preparazione dei dati
+
+Per la nostra analisi ci interessano principalmente il simbolo dell'azienda e il suo peso all'interno dell'indice.
+
+Prima di procedere, verifichiamo quali colonne sono disponibili nel dataset.
+
+```{r}
+names(sp500)
+```
+
+Se il dataset contiene le colonne `symbol` e `weight`, possiamo preparare i dati nel seguente modo:
+
+```{r}
+sp500_clean <- sp500 %>%
+  select(symbol, weight) %>%
+  filter(!is.na(weight), weight > 0) %>%
+  arrange(desc(weight))
+```
+
+Controlliamo il dataset ottenuto:
+
+```{r}
+head(sp500_clean, 10)
+```
+
+Verifichiamo il numero di aziende e la somma dei pesi:
+
+```{r}
+nrow(sp500_clean)
+
+sum(sp500_clean$weight)
+```
+
+La somma dei pesi dovrebbe essere pari a 1 oppure a 100, a seconda dell'unità di misura utilizzata.
+
+## 3. Analisi delle aziende più importanti
+
+Vogliamo individuare le aziende che hanno il peso maggiore all'interno dell'indice.
+
+Selezioniamo le prime 10 aziende:
+
+```{r}
+top10 <- sp500_clean %>%
+  slice_max(weight, n = 10)
+
+top10
+```
+
+Visualizziamo i risultati attraverso un grafico a barre:
+
+```{r}
+ggplot(top10, aes(x = reorder(symbol, weight), y = weight)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "Le 10 aziende con il peso maggiore nell'S&P 500",
+    x = "Azienda",
+    y = "Peso nell'indice"
+  ) +
+  theme_minimal()
+```
+
+Calcoliamo la concentrazione delle prime 5, 10 e 20 aziende:
+
+```{r}
+concentration <- sp500_clean %>%
+  summarise(
+    Top_5 = sum(head(weight, 5)),
+    Top_10 = sum(head(weight, 10)),
+    Top_20 = sum(head(weight, 20))
+  )
+
+concentration
+```
+
+Questi valori permettono di capire quale percentuale del peso totale dell'indice è rappresentata dalle aziende più grandi.
+
+## 4. Distribuzione dei pesi
+
+Analizziamo ora come sono distribuiti i pesi tra tutte le aziende dell'indice.
+
+Utilizziamo un istogramma per visualizzare la distribuzione:
+
+```{r}
+ggplot(sp500_clean, aes(x = weight)) +
+  geom_histogram(
+    bins = 30,
+    fill = "steelblue",
+    color = "white"
+  ) +
+  labs(
+    title = "Distribuzione dei pesi delle aziende dell'S&P 500",
+    x = "Peso nell'indice",
+    y = "Numero di aziende"
+  ) +
+  theme_minimal()
+```
+
+L'istogramma permette di osservare se i pesi sono distribuiti uniformemente oppure se poche aziende possiedono una quota molto più elevata rispetto alle altre.
+
+Ci aspettiamo una distribuzione asimmetrica, con molte aziende caratterizzate da pesi ridotti e poche aziende con pesi significativamente maggiori.
+
+## 5. Curva di Lorenz
+
+La curva di Lorenz permette di rappresentare graficamente il livello di disuguaglianza nella distribuzione dei pesi.
+
+Sull'asse orizzontale troviamo la percentuale cumulativa delle aziende, ordinate dalla più piccola alla più grande.
+
+Sull'asse verticale troviamo la percentuale cumulativa del peso totale dell'indice.
+
+In una situazione di perfetta uguaglianza, tutte le aziende avrebbero lo stesso peso e la curva coinciderebbe con la diagonale.
+
+Calcoliamo la curva di Lorenz:
+
+```{r}
+lorenz_curve <- Lc(sp500_clean$weight)
+
+plot(
+  lorenz_curve,
+  main = "Curva di Lorenz dell'S&P 500",
+  xlab = "Percentuale cumulativa delle aziende",
+  ylab = "Percentuale cumulativa del peso",
+  col = "blue",
+  lwd = 2
+)
+```
+
+Quanto più la curva si allontana dalla diagonale di perfetta uguaglianza, tanto maggiore è la concentrazione dei pesi nelle mani di poche aziende.
+
+## 6. Coefficiente di Gini
+
+Il coefficiente di Gini è un indicatore numerico utilizzato per misurare il livello di disuguaglianza di una distribuzione.
+
+Assume valori compresi tra 0 e 1:
+
+- Un valore pari a 0 indica una situazione di perfetta uguaglianza.
+- Un valore pari a 1 indica una situazione di massima disuguaglianza.
+
+Calcoliamo il coefficiente di Gini dei pesi dell'S&P 500:
+
+```{r}
+gini <- Gini(sp500_clean$weight)
+
+gini
+```
+
+Visualizziamo il risultato arrotondato a quattro cifre decimali:
+
+```{r}
+round(gini, 4)
+```
+
+Un valore elevato indica che i pesi delle aziende sono distribuiti in maniera disomogenea, mentre un valore più vicino a zero indica una distribuzione più uniforme.
+
+## 7. Conclusioni
+
+Attraverso questa analisi abbiamo studiato la concentrazione dei pesi delle aziende che compongono l'indice S&P 500.
+
+Abbiamo utilizzato diverse tecniche statistiche e grafiche per rispondere alle domande iniziali.
+
+In particolare:
+
+1. La distribuzione dei pesi permette di osservare quanto differiscono le aziende tra loro.
+2. L'analisi delle prime 5, 10 e 20 aziende permette di misurare quanto l'indice dipenda dalle società con maggiore capitalizzazione.
+3. La curva di Lorenz rappresenta graficamente il livello di disuguaglianza.
+4. Il coefficiente di Gini fornisce una misura numerica sintetica della concentrazione.
+
+L'S&P 500 è composto da numerose aziende, ma la ponderazione basata sulla capitalizzazione di mercato fa sì che le società più grandi abbiano un'influenza maggiore sull'indice.
+
+Di conseguenza, il numero di aziende presenti nell'indice non implica necessariamente un'equa distribuzione del loro peso.
+

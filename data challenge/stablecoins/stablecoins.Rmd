@@ -1,0 +1,211 @@
+---
+title: "Stablecoins” compare USDC, USDT and DAI transaction sizes and volumes"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, message = FALSE, warning = FALSE)
+```
+
+We want to compare three major Ethereum stablecoins:
+
+- USDC (smart contract address:
+  0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48)
+- USDT (smart contract address:
+  0xdac17f958d2ee523a2206206994597c13d831ec7)
+- DAI (smart contract address:
+  0x6b175474e89094c44da98b954eedeac495271d0f)
+
+We will investigate two questions:
+
+1.  How do their transfer sizes differ?
+2.  How much transfer volume does each stablecoin generate?
+
+Our workflow is:
+
+``` text
+Ethereum
+   ↓
+Etherscan
+   ↓
+ERC-20 transfer events
+   ↓
+R / tidyverse
+   ↓
+transfer sizes + transfer volumes
+```
+
+We use Etherscan to retrieve the already indexed ERC-20 transfer events.
+Etherscanâ€™s `tokentx` endpoint can be filtered directly by token
+contract, so we do not need to download unrelated ERC-20 transfers
+first.
+
+We use the term transfer rather than transaction throughout the lab: one
+Ethereum transaction can generate several ERC-20 transfer events.
+
+## Download dei trasferimenti e pulizia dati
+
+Per ogni token scarichiamo da Etherscan i 10.000 trasferimenti più
+recenti.
+
+```{r}
+library(tidyverse)
+library(httr2)
+library(scales)
+tokens <- tribble(
+  ~token, ~contract,
+  "USDC", "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+  "USDT", "0xdac17f958d2ee523a2206206994597c13d831ec7",
+  "DAI",  "0x6b175474e89094c44da98b954eedeac495271d0f"
+)
+
+api_key <- Sys.getenv("ETHERSCAN_API_KEY")
+
+get_transfers <- function(contract, api_key, n = 10000) {
+  resp <- request("https://api.etherscan.io/v2/api") |>
+    req_url_query(
+      chainid = 1, module = "account", action = "tokentx",
+      contractaddress = contract, page = 1, offset = n,
+      sort = "desc", apikey = api_key
+    ) |>
+    req_retry(max_tries = 3) |>
+    req_perform() |>
+    resp_body_json(simplifyVector = TRUE)
+
+  if (resp$status != "1") stop("Errore Etherscan: ", resp$message, " - ", resp$result)
+  as_tibble(resp$result)
+}
+#Pulizia dati
+raw <- tokens |>
+  mutate(data = map(contract, \(x) {
+    Sys.sleep(0.5)
+    get_transfers(x, api_key)
+  })) |>
+  select(token, data) |>
+  unnest(data)
+
+transfers <- raw |>
+  transmute(
+    token, hash, from, to,
+    time   = as_datetime(as.numeric(timeStamp)),
+    amount = as.numeric(value) / 10^as.numeric(tokenDecimal)
+  ) |>
+  filter(amount > 0)
+
+coverage <- transfers |>
+  group_by(token) |>
+  summarise(
+    trasferimenti = n(),
+    first = min(time),
+    last  = max(time),
+    ore_coperte = as.numeric(difftime(last, first, units = "hours"))
+  )
+
+knitr::kable(coverage, digits = 2)
+```
+
+## Domanda 1: How do their transfer sizes differ?
+
+In che modo differiscono le loro dimensioni di trasferimento?
+
+```{r}
+size_summary <- transfers |>
+  group_by(token) |>
+  summarise(
+    trasferimenti = n(),
+    mediana = median(amount),
+    media   = mean(amount),
+    p90     = quantile(amount, 0.90),
+    p99     = quantile(amount, 0.99),
+    massimo = max(amount),
+    quota_sotto_100 = mean(amount < 100)
+  )
+
+knitr::kable(size_summary, digits = 2, format.args = list(big.mark = "."))
+```
+
+```{r}
+ggplot(transfers, aes(amount, fill = token)) +
+  geom_histogram(bins = 60, alpha = 0.85) +
+  scale_x_log10(labels = label_dollar()) +
+  facet_wrap(~token, ncol = 1, scales = "free_y") +
+  labs(title = "Distribuzione della dimensione dei trasferimenti",
+       x = "Importo (USD, scala log)", y = "Numero di trasferimenti") +
+  theme_minimal() + theme(legend.position = "none")
+```
+
+```{r}
+ggplot(transfers, aes(token, amount, fill = token)) +
+  geom_boxplot(outlier.alpha = 0.2) +
+  scale_y_log10(labels = label_dollar()) +
+  labs(title = "Dimensione dei trasferimenti per stablecoin",
+       x = NULL, y = "Importo (USD, scala log)") +
+  theme_minimal() + theme(legend.position = "none")
+```
+
+```{r}
+max_med <- size_summary$token[which.max(size_summary$mediana)]
+min_med <- size_summary$token[which.min(size_summary$mediana)]
+cat("max_med:", max_med, "\n")
+cat("min_med:", min_med, "\n")
+```
+
+**Risposta:** Le tre stablecoin hanno distribuzioni molto asimmetriche.Per tutti e tre i token la media è più alta della mediana: pochi trasferimenti enormi dominano. Per questo la mediana descrive il trasferimento “tipico” meglio della media. Possiamo quindi dire che:
+- **USDT** ha i trasferimenti più piccoli: mediana di circa 144\$, e il 44% dei trasferimenti è sotto i 100 \$. È la stablecoin più usata per pagamenti piccoli e frequenti, per esempio verso exchange o tra utenti retail.
+- **DAI** e **USDC** hanno una mediana simile, intorno ai 400\$,quasi tre volte quella di USDT. Solo circa il 31–32% dei loro trasferimenti è sotto i 100\$.
+- Le due però differiscono nella coda alta:
+  - **DAI** ha la parte medio-alta più “grossa”: il 10% dei trasferimenti supera circa 89.000\$ , contro circa 20.000\$ per USDC e 7.600 \$ per USDT. Questo è coerente con un uso legato alla DeFi, con molti trasferimenti di taglia medio-grande.
+  - **USDC** ha i valori estremi: il p99 è circa 700.000\$ e il massimo arriva a 100,2 milioni di\$ in un solo trasferimento. Questi pochi casi fanno salire la media a circa 488.000\$, il che mostra un uso da parte di grandi attori istituzionali.
+
+## Domanda 2: How much transfer volume does each stablecoin generate?
+Qual è il volume di trasferimenti generato da ciascuna stablecoin?
+
+```{r}
+window_start <- max(coverage$first)
+window_end   <- min(coverage$last)
+window_hours <- as.numeric(difftime(window_end, window_start, units = "hours"))
+
+common <- transfers |> filter(time >= window_start, time <= window_end)
+
+volume <- common |>
+  group_by(token) |>
+  summarise(trasferimenti = n(), volume = sum(amount)) |>
+  mutate(
+    trasferimenti_ora = trasferimenti / window_hours,
+    volume_ora        = volume / window_hours,
+    quota_volume      = volume / sum(volume)
+  ) |>
+  arrange(desc(volume))
+
+knitr::kable(volume, digits = 2, format.args = list(big.mark = "."))
+```
+
+
+
+```{r}
+ggplot(volume, aes(reorder(token, volume), volume, fill = token)) +
+  geom_col() + coord_flip() +
+  scale_y_continuous(labels = label_dollar(scale_cut = cut_short_scale())) +
+  labs(title = "Volume trasferito nella finestra comune",
+       x = NULL, y = "Totale trasferito (USD)") +
+  theme_minimal() + theme(legend.position = "none")
+```
+
+```{r}
+common |>
+  arrange(time) |>
+  group_by(token) |>
+  mutate(volume_cumulato = cumsum(amount)) |>
+  ggplot(aes(time, volume_cumulato, colour = token)) +
+  geom_step() +
+  scale_y_continuous(labels = label_dollar(scale_cut = cut_short_scale())) +
+  labs(title = "Volume cumulato nel tempo",
+       x = "Ora (UTC)", y = "Volume cumulato (USD)", colour = NULL) +
+  theme_minimal()
+```
+
+**Risposta.** Nella finestra temporale comune, che dura circa 2 minuti (dalle 08:57 alle 08:59 UTC), USDC genera di gran lunga il volume maggiore: circa 410 milioni di \$. Seguono USDT con circa 13 milioni di $ e DAI, con un volume così piccolo da essere quasi invisibile nel grafico.
+Il grafico del volume cumulato mostra però che questo risultato è dovuto quasi tutto a un singolo momento. Verso le 08:58 la linea di USDC fa un salto verticale di circa 400 milioni di \$. Dato che il trasferimento singolo più grande è di 100,2 milioni, il salto corrisponde a pochi trasferimenti enormi avvenuti tutti nello stesso blocco, probabilmente movimenti tra exchange, market maker o emittente. Prima di quel salto USDC e USDT crescevano in modo simile, arrivando entrambe a circa 10–13 milioni di \$.

@@ -1,0 +1,113 @@
+---
+title: "Concentration of S&P 500 index"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, echo = TRUE, message = FALSE)
+```
+
+In this data challege we study how concentrated the S&P 500 is among its constituent companies.
+
+1.  The S&P 500 (Standard & Poor's 500) is a stock market index that tracks the performance of 500 of the largest publicly traded companies in the United States.
+2.  It covers roughly 80% of the total value of the U.S. stock market.
+3.  It is a market-capitalization-weighted index. Larger companies have a much bigger impact on its value than smaller components
+
+We will use:
+
+```{r}
+library(tidyverse)
+library(tidyquant)
+library(ineq)
+```
+
+The three packages have different roles:
+
+``` text
+tidyquant    retrieve the S&P 500 constituents and weights
+tidyverse    manipulate and visualize the data
+ineq         calculate the Lorenz curve and Gini coefficient
+```
+
+Our main questions are:
+
+1.  How unequal are the company weights in the S&P 500?
+2.  How much of the index is represented by its largest companies?
+3.  What does the Lorenz curve tell us about concentration?
+4.  What is the Gini coefficient of the S&P 500 weights?
+
+## Domanda 1
+
+1.  How unequal are the company weights in the S&P 500?
+
+```{r}
+#install.packages(c("tidyverse", "tidyquant", "ineq"))
+library(tidyquant)
+sp500 <- tq_index("SP500")
+glimpse(sp500)
+
+```
+
+```{r}
+sp500 <- sp500 %>%
+  filter(!is.na(weight), weight > 0) %>%
+  arrange(desc(weight))
+
+sum(sp500$weight)
+summary(sp500$weight)
+```
+
+```{r}
+ggplot(sp500, aes(weight)) +
+  geom_histogram(bins = 50) +
+  labs(title = "Distribuzione dei pesi nell'S&P 500", x = "Peso", y = "Numero di società")
+```
+
+## Domanda 2
+
+2.  How much of the index is represented by its largest companies?
+
+```{r}
+sp500 <- sp500 %>% mutate(rank = row_number(), cum_weight = cumsum(weight))
+
+sp500 %>% slice_head(n = 10) %>% select(symbol, company, weight)
+
+sp500 %>% filter(rank %in% c(1, 5, 10, 20, 50, 100)) %>% select(rank, cum_weight)
+```
+
+```{r}
+
+sp500 %>% slice_head(n = 20) %>%
+  ggplot(aes(reorder(symbol, weight), weight)) +
+  geom_col() + coord_flip() +
+  labs(title = "Le 20 società più pesanti", x = NULL, y = "Peso")
+```
+
+## Domanda 3
+
+3.  What does the Lorenz curve tell us about concentration?
+
+```{r}
+lc <- Lc(sp500$weight)
+plot(lc, main = "Curva di Lorenz dei pesi S&P 500",
+     xlab = "Quota cumulata di società", ylab = "Quota cumulata del peso")
+
+```
+
+```{r}
+
+tibble(p = lc$p, L = lc$L) %>%
+  ggplot(aes(p, L)) +
+  geom_line(color = "blue") +
+  geom_abline(linetype = "dashed") +
+  labs(x = "Quota cumulata di società", y = "Quota cumulata del peso")
+```
+
+## Domanda 4
+
+4.  What is the Gini coefficient of the S&P 500 weights?
+
+```{r}
+Gini(sp500$weight)
+
+```
