@@ -1,0 +1,78 @@
+---
+title: "How life expectancy change over time for each continent?"
+output:
+  html_document:
+    theme: spacelab
+    highlight: pygments
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+# cache results
+knitr::opts_chunk$set(cache=TRUE, message=FALSE)
+```
+
+Life expectancy for a country is the mean length of life over people of
+a country. Using variables life expectancy and population of a country:
+
+```{r}
+library(tidyverse)
+library(gapminder)
+```
+
+1.  derive a formula to compute life expectancy of a continent (a group
+    of countries)
+
+    Per il paese $i$ chiamiamo $p_i$ la popolazione e $e_i$
+    l'aspettativa di vita. Siccome $e_i$ è la media degli anni vissuti
+    dalle persone del paese, il totale degli anni vissuti nel paese è
+    circa $e_i \cdot p_i$.
+
+    L'aspettativa di vita di un continente è la media sulle persone del
+    continente, cioè il totale degli anni vissuti diviso il totale delle
+    persone:
+
+$$
+e_{continente} = \frac{\sum_{i} e_i \, p_i}{\sum_{i} p_i}
+$$
+
+2\. plot how life expectancy changed over time for each continent
+
+```{r}
+by_continent = gapminder %>%
+  mutate(pop = as.numeric(pop)) %>%
+  group_by(continent, year) %>%
+  summarise(lifeExp = sum(lifeExp * pop) / sum(pop),
+            .groups = "drop")
+
+by_continent
+```
+
+```{r}
+ggplot(by_continent, aes(year, lifeExp, color = continent)) +
+  geom_line(linewidth = 1) +
+  geom_point() +
+  labs(x = "Anno", y = "Aspettativa di vita", color = "Continente") +
+  theme_classic()
+```
+
+3\. do the same for the whole planet
+
+```{r}
+world = gapminder %>%
+  mutate(pop = as.numeric(pop)) %>%
+  group_by(year) %>%
+  summarise(lifeExp = sum(lifeExp * pop) / sum(pop))
+
+world
+```
+
+```{r}
+ggplot(world, aes(year, lifeExp)) +
+  geom_line(linewidth = 1) +
+  geom_point() +
+  labs(x = "Anno", y = "Aspettativa di vita") +
+  theme_classic()
+```
