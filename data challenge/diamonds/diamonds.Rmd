@@ -1,0 +1,74 @@
+---
+title: "Diamonds quality"
+output:
+  html_document:
+    theme: spacelab
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+# cache results
+knitr::opts_chunk$set(cache=TRUE, message=FALSE)
+```
+In this data challenge we explore the qualities of diamonds and their association with price using the `ggplot2::diamonds` dataset:
+
+1. First of all, observe that low quality diamonds (with respect to cut, color and clarity) are more expensive.
+2. Using models, find an explanation and solve the apparent paradox.
+
+Recall that:
+
+* best cut is Ideal, worst is Fair
+* best color is D, worst is J
+* best clarity is IF, worst is I1
+
+## 1. Quality
+```{r}
+library(tidyverse)
+library(modelr) 
+
+ggplot(diamonds, aes(cut, price)) + geom_boxplot()
+ggplot(diamonds, aes(color, price)) + geom_boxplot()
+ggplot(diamonds, aes(clarity, price)) + geom_boxplot()
+```
+
+## 2. Cause
+### il peso influenza il prezzo?
+```{r}
+ggplot(diamonds, aes(carat, price)) + geom_point(alpha = 0.1)
+```
+
+**Risposta:** Si, più carati significa prezzo più alto
+
+### Il peso è legato alla qualità
+```{r}
+ggplot(diamonds, aes(clarity, carat)) + geom_boxplot()
+```
+
+**Risposta:** Sì: i diamanti I1 ovvero di purezza peggiore sono in media più grandi degli IF. Lo stesso vale per colore e taglio.
+
+```{r}
+diamonds2 <- diamonds %>%
+  filter(carat <= 2.5) %>%                  
+  mutate(lprice = log2(price),
+         lcarat = log2(carat))
+
+ggplot(diamonds2, aes(lcarat, lprice)) + geom_point(alpha = 0.1)
+```
+
+Possiamo notare che i punti formano grossomodo una retta.
+
+## Modello con il peso
+### calcoliamo il "prezzo giusto" per il peso
+```{r}
+mod_carat <- lm(lprice ~ lcarat, data = diamonds2)
+
+diamonds2 <- diamonds2 %>%
+  add_residuals(mod_carat, "lresid")
+mod_carat
+```
+### Guardiamo i residui per ogni livello di qualità
+```{r}
+ggplot(diamonds2, aes(cut, lresid)) + geom_boxplot()
+ggplot(diamonds2, aes(color, lresid)) + geom_boxplot()
+ggplot(diamonds2, aes(clarity, lresid)) + geom_boxplot()
+```
