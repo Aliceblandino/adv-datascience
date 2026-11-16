@@ -1,0 +1,134 @@
+---
+title: "Global warming through data"
+output:
+  html_document:
+    theme: spacelab
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+# Codice
+
+## Pulizia dati
+
+```{r}
+library(tidyverse)
+
+url <- paste0(
+  "https://data.giss.nasa.gov/gistemp/",
+  "tabledata_v4/GLB.Ts+dSST.csv"
+)
+file_locale <- "gistemp.csv"
+
+# scarico il file UNA volta sola; le volte dopo lo leggo dal disco
+if (!file.exists(file_locale) || file.size(file_locale) == 0) {
+  options(timeout = 60)
+  ok <- tryCatch(
+    download.file(url, file_locale, mode = "wb", quiet = TRUE) == 0,
+    error = function(e) FALSE
+  )
+  if (!ok) {
+    if (file.exists(file_locale)) file.remove(file_locale)
+    stop(
+      "Download non riuscito. Apri ", url,
+      " nel browser, salva il file come 'gistemp.csv' ",
+      "nella stessa cartella di questo .Rmd e rilancia."
+    )
+  }
+}
+
+temp_raw <- read_csv(
+  file_locale,
+  skip = 1,
+  na = c("***", "****"),
+  show_col_types = FALSE
+)
+
+glimpse(temp_raw)
+
+temp <- temp_raw |>
+  select(Year, Jan:Dec) |>
+  pivot_longer(Jan:Dec, names_to = "month", values_to = "anomaly") |>
+  drop_na(anomaly)
+
+# media annuale per gli anni completi
+annual <- temp |>
+  group_by(Year) |>
+  summarise(
+    anomaly = mean(anomaly),
+    n_months = n(),
+    .groups = "drop"
+  ) |>
+  filter(n_months == 12)
+```
+
+## L'opera
+
+```{r}
+# anni da scrivere attorno al cerchio
+labels <- annual |>
+  filter(Year %in% c(1880, 1920, 1960, 2000))
+
+corona <- ggplot(annual, aes(x = Year, y = anomaly, fill = anomaly)) +
+  # cerchio di riferimento: anomalia = 0
+  geom_hline(yintercept = 0, color = "grey60", linetype = "dashed") +
+  # una barra per anno
+  geom_col(width = 0.8) +
+  # etichette di alcuni anni
+  geom_text(
+    data = labels,
+    aes(x = Year, y = -0.75, label = Year),
+    color = "grey30", size = 3.5
+  ) +
+  scale_fill_gradient2(
+    low = "#2166AC", mid = "#F7F7F7", high = "#B2182B",
+    midpoint = 0,
+    name = "Anomalia (°C)"
+  ) +
+  # il limite inferiore -1.6 crea il "buco" al centro
+  scale_y_continuous(limits = c(-1.6, 1.4)) +
+  # spazio vuoto fra l'ultimo e il primo anno
+  scale_x_continuous(limits = c(min(annual$Year) - 0.5, max(annual$Year) + 8)) +
+  coord_polar() +
+  labs(
+    title = "La corona del clima",
+    subtitle = "Anomalia media annuale della temperatura globale\nrispetto alla media 1951–1980",
+    caption = "Dati: NASA GISTEMP v4"
+  ) +
+  theme_void() +
+  theme(
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 10, hjust = 0.5, color = "grey40"),
+    plot.caption = element_text(color = "grey50"),
+    legend.position = "bottom"
+  )
+
+corona
+```
+
+```{r save, include=FALSE}
+ggsave("corona_del_clima.png", corona, width = 8, height = 8, dpi = 300, bg = "white")
+```
+
+## Come è stata costruita
+
+Ogni anno dal 1880 al 2025 è una barra disposta attorno a un cerchio. Il cerchio tratteggiato rappresenta la media 1951–1980 (anomalia=0): le barre degli anni più caldi escono verso l'esterno in rosso, quelle degli anni più freddi entrano verso il centro in blu. Partendo dall'alto e girando in senso orario,possiamo notare come la corona cambi: prima corta e blu, alla fine lunga e rossa.
+
+- `pivot_longer()` trasforma la tabella da una riga per anno a una riga per mese.
+
+- `group_by(Year)` e `summarise()` calcolano l'anomalia media di ogni anno. Con `filter(n_months == 12)` tengo solo gli anni completi.
+
+- `geom_col()` disegna una barra per anno: l'altezza è l'anomalia media e può essere positiva o negativa.
+
+- `coord_polar()` piega l'asse orizzontale (gli anni) in un cerchio: l'anno diventa l'angolo e l'anomalia diventa la distanza dal centro.
+
+- `scale_y_continuous(limits = c(-1.6, 1.4))` sposta lo zero lontano dal centro. In questo modo lo zero diventa un cerchio (quello tratteggiato) e le barre negative hanno spazio per andare verso l'interno.
+
+- `scale_x_continuous()` lascia qualche anno vuoto alla fine, così l'ultimo anno non tocca il primo e si vede dove inizia e dove finisce la corona.
+
+- `scale_fill_gradient2()` colora le barre: blu sotto la media, bianco vicino a 0, rosso sopra.
+
+- `theme_void()` toglie assi e griglie, lasciando solo la forma.
